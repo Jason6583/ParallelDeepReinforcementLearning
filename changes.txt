@@ -1,0 +1,1312 @@
+diff --git a/DeepQLearning/DRLAgent/DeepQLearn.cs b/DeepQLearning/DRLAgent/DeepQLearn.cs
+index d76c4a7..831401b 100644
+--- a/DeepQLearning/DRLAgent/DeepQLearn.cs
++++ b/DeepQLearning/DRLAgent/DeepQLearn.cs
+@@ -1,5 +1,6 @@
+ ﻿using ConvnetSharp;
+ using System;
++using System.Collections.Concurrent;
+ using System.Collections.Generic;
+ using System.Linq;
+ using System.Text;
+@@ -46,42 +47,50 @@ namespace DeepQLearning.DRLAgent
+     [Serializable]
+     public class DeepQLearn
+     {
+-        TrainingOptions opt;
+-
+-        int temporal_window;
+-        int experience_size;
+-        double start_learn_threshold;
+-        double gamma;
+-        double learning_steps_total;
+-        double learning_steps_burnin;
+-        double epsilon_min;
++        protected TrainingOptions opt;
++
++        protected int temporal_window;
++        protected int experience_size;
++        protected double start_learn_threshold;
++        protected double gamma;
++        protected double learning_steps_total;
++        protected double learning_steps_burnin;
++        protected double epsilon_min;
+         public double epsilon_test_time;
+ 
+-        int net_inputs;
+-        int num_states;
+-        int num_actions;
+-        int window_size;
+-        List<Volume> state_window;
+-        List<int> action_window;
+-        List<double> reward_window;
+-        List<double[]> net_window;
+-
+-        double age;
+-        double forward_passes;
++        protected int net_inputs;
++        protected int num_states;
++        protected int num_actions;
++        protected int window_size;
++        protected List<Volume> state_window;
++        protected List<int> action_window;
++        protected List<double> reward_window;
++        protected List<double[]> net_window;
++
++        public double age;
++        public double forward_passes;
+         public double epsilon;
+-        double latest_reward;
+-        Volume last_input;
+-        TrainingWindow average_reward_window;
+-        TrainingWindow average_loss_window;
++        public double latest_reward;
++        public Volume last_input;
++        public TrainingWindow average_reward_window;
++        public TrainingWindow average_loss_window;
+         public bool learning;
+ 
+-        Net value_net;
++        public Net value_net;
+         public Trainer tdtrainer;
+ 
+-        Util util;
++        protected Util util;
+ 
+         List<double> random_action_distribution;
+-        List<Experience> experience;
++        public List<Experience> experience;
++        //public static List<ExperienceShared> experienceShared;  //static not threadsafe
++
++        // concurrent collections are threadsafe
++        //https://docs.microsoft.com/en-us/dotnet/standard/collections/thread-safe/
++        // but access by index uses TryGetValue() which incurs locking and performance degradation
++        //https://referencesource.microsoft.com/#mscorlib/system/Collections/Concurrent/ConcurrentDictionary.cs
++        public static ConcurrentDictionary<int, ExperienceShared> experienceShared;
++        
+ 
+         public DeepQLearn(int num_states, int num_actions, TrainingOptions opt)
+         {
+@@ -196,6 +205,8 @@ namespace DeepQLearning.DRLAgent
+ 
+             // experience replay
+             this.experience = new List<Experience>();
++            //DeepQLearn.experienceShared = new List<ExperienceShared>(); // static list not threadsafe
++            DeepQLearn.experienceShared = new ConcurrentDictionary<int, ExperienceShared>();
+ 
+             // various housekeeping variables
+             this.age = 0; // incremented every backward()
+@@ -328,7 +339,7 @@ namespace DeepQLearning.DRLAgent
+             return action;
+         }
+ 
+-        public void backward(double reward)
++        public virtual void backward(double reward)
+         {
+             this.latest_reward = reward;
+             this.average_reward_window.add(reward);
+@@ -356,7 +367,7 @@ namespace DeepQLearning.DRLAgent
+                 {
+                     this.experience.Add(e);
+                 }
+-                else
++                else if (this.experience_size > 0)
+                 {
+                     // replace. finite memory!
+                     var ri = util.randi(0, this.experience_size);
+@@ -378,7 +389,7 @@ namespace DeepQLearning.DRLAgent
+                     var maxact = this.policy(e.state1);
+                     var r = e.reward0 + this.gamma * maxact.value;
+ 
+-                    var ystruct = new Entry { dim=e.action0, val=r};
++                    var ystruct = new Entry { dim = e.action0, val = r };
+                     var loss = this.tdtrainer.train(x, ystruct);
+                     avcost += double.Parse(loss["loss"]);
+                 }
+@@ -388,7 +399,12 @@ namespace DeepQLearning.DRLAgent
+             }
+         }
+ 
+-        public string visSelf()
++        public virtual int instanceExperienceCount()
++        {
++            return experience.Count;
++        }
++
++        public virtual string visSelf()
+         {
+             var t = "";
+             t += "experience replay size: " + this.experience.Count + Environment.NewLine;
+diff --git a/DeepQLearning/DRLAgent/QAgent.cs b/DeepQLearning/DRLAgent/QAgent.cs
+index 6360d12..b1e967f 100644
+--- a/DeepQLearning/DRLAgent/QAgent.cs
++++ b/DeepQLearning/DRLAgent/QAgent.cs
+@@ -108,6 +108,11 @@ namespace DeepQLearning.DRLAgent
+         public int actionix;
+         public DeepQLearn brain;
+ 
++        // added for concurrency and metrics
++        //public DeepQLearnSharedSingleton brainShared;
++        //public DeepQLearnShared brainShared;
++        public int processed_item_reward_count = 0, processed_item_punishment_count = 0;
++
+         public Agent(DeepQLearn brain)
+         {
+             this.brain = brain;
+@@ -117,12 +122,13 @@ namespace DeepQLearning.DRLAgent
+             this.op = this.p; // old position
+             this.angle = 0; // direction facing
+ 
++            // possible actions
+             this.actions = new List<double[]>();
+-            this.actions.Add(new double[] { 1, 1 });
+-            this.actions.Add(new double[] { 0.8, 1 });
+-            this.actions.Add(new double[] { 1, 0.8 });
+-            this.actions.Add(new double[] { 0.5, 0 });
+-            this.actions.Add(new double[] { 0, 0.5 });
++            this.actions.Add(new double[] { 1, 1 }); // straight
++            this.actions.Add(new double[] { 0.8, 1 }); // soft left
++            this.actions.Add(new double[] { 1, 0.8 }); // soft right
++            this.actions.Add(new double[] { 0.5, 0 }); // hard right
++            this.actions.Add(new double[] { 0, 0.5 }); // hard left
+ 
+             // properties
+             this.rad = 10;
+@@ -192,7 +198,11 @@ namespace DeepQLearning.DRLAgent
+ 
+             // agents like to go straight forward
+             var forward_reward = 0.0;
+-            if (this.actionix == 0 && proximity_reward > 0.75) forward_reward = 0.1 * proximity_reward;
++            //if (this.actionix == 0 && proximity_reward > 0.75)
++            //    forward_reward = 0.1 * proximity_reward;
++            // TODO: agents dont like to spin in circles
++            if (this.actionix == 0)
++                forward_reward = 0.1 * proximity_reward;
+ 
+             // agents like to eat good things
+             var digestion_reward = this.digestion_signal;
+@@ -212,7 +222,8 @@ namespace DeepQLearning.DRLAgent
+         Util util;
+ 
+         int W, H;
+-        int clock;
++        public int clock;
++        public int num_items;
+ 
+         public List<Wall> walls;
+         public List<Item> items;
+@@ -220,11 +231,12 @@ namespace DeepQLearning.DRLAgent
+ 
+         List<Intersect> collpoints;
+ 
+-        public World(DeepQLearn brain, int canvas_Width, int canvas_Height)
++        public World(DeepQLearn brain, int canvas_Width, int canvas_Height, int num_items, bool random, bool obstruct, bool infinite)
+         {
+             this.agents = new List<Agent>();
+             this.W = canvas_Width;
+             this.H = canvas_Height;
++            this.num_items = num_items;
+ 
+             this.util = new Util();
+             this.clock = 0;
+@@ -232,21 +244,39 @@ namespace DeepQLearning.DRLAgent
+             // set up walls in the world
+             this.walls = new List<Wall>();
+             var pad = 10;
+-
++            //outer walls
+             util_add_box(this.walls, pad, pad, this.W - pad * 2, this.H - pad * 2);
+-            util_add_box(this.walls, 100, 100, 200, 300); // inner walls
+-
+-            this.walls.RemoveAt(walls.Count - 1);
+-            util_add_box(this.walls, 400, 100, 200, 300);
+-            this.walls.RemoveAt(walls.Count - 1);
++            // inner walls
++            if (obstruct)
++            {
++                util_add_box(this.walls, 100, 100, 200, 300);
++                this.walls.RemoveAt(walls.Count - 1);
++                util_add_box(this.walls, 400, 100, 200, 300);
++                this.walls.RemoveAt(walls.Count - 1);
++            }
+ 
+-            // set up food and poison
++            // set up food/fail and poison/pass test cases
+             this.items = new List<Item>();
+-            for (var k = 0; k < 30; k++)
++            for (var k = 0; k < num_items; k++)
+             {
+-                var x = util.randf(20, this.W - 20);
+-                var y = util.randf(20, this.H - 20);
+-                var t = util.randi(1, 3); // food or poison (1 and 2)
++                double x = 0, y = 0;
++                int t = 0;
++                if (random)
++                {
++                    // define random based objects
++                    x = util.randf(20, this.W - 20);
++                    y = util.randf(20, this.H - 20);
++                    t = util.randi(1, 3); // food/fail or poison/pass (1 and 2)
++                }
++                else
++                {
++                    // define policy based objects
++                    x = (this.W / 35) * (k + 1) + ((k % 2 == 0) ? 50 : -50);
++                    y = (this.H / 35) * (k + 1);
++                    t = (k % 2 == 0) ? 1 : 2; // food/fail or poison/pass (1 and 2)
++                }
++
++                // add objects to environment
+                 var it = new Item(x, y, t);
+                 this.items.Add(it);
+             }
+@@ -369,7 +399,7 @@ namespace DeepQLearning.DRLAgent
+             return Math.Abs(a - b) < tolerance;
+         }
+ 
+-        public void tick()
++        public int tick(bool infinite, bool random, double rval, double pval)
+         {
+             // tick the environment
+             this.clock++;
+@@ -406,7 +436,7 @@ namespace DeepQLearning.DRLAgent
+                 this.agents[i].forward();
+             }
+ 
+-            // apply outputs of agents on evironment
++            // apply outputs of agents on environment
+             for (int i = 0, n = this.agents.Count; i < n; i++)
+             {
+                 var a = this.agents[i];
+@@ -450,10 +480,12 @@ namespace DeepQLearning.DRLAgent
+ 
+             // tick all items
+             var update_items = false;
++            var reward_count = 0;
+             for (int i = 0, n = this.items.Count; i < n; i++)
+             {
+                 var it = this.items[i];
+                 it.age += 1;
++                if (it.type == 1) reward_count++;
+ 
+                 // see if some agent gets lunch
+                 for (int j = 0, m = this.agents.Count; j < m; j++)
+@@ -462,14 +494,26 @@ namespace DeepQLearning.DRLAgent
+                     var d = a.p.dist_from(it.p);
+                     if (d < it.rad + a.rad)
+                     {
+-
+                         // wait lets just make sure that this isn't through a wall
+                         var rescheck = this.stuff_collide_(a.p, it.p, true, false);
+                         if (!rescheck.intersect)
+                         {
+                             // ding! nom nom nom
+-                            if (it.type == 1) a.digestion_signal += 5.0; // mmm delicious apple
+-                            if (it.type == 2) a.digestion_signal += -6.0; // ewww poison
++                            switch (it.type)
++                            {
++                                case 1:
++                                    a.processed_item_reward_count++;
++                                    //a.digestion_signal += 5.0; // mmm delicious apple/failed test (+reward)
++                                    a.digestion_signal += rval; // mmm delicious apple/failed test (+reward)
++                                    break;
++                                case 2:
++                                    a.processed_item_punishment_count++;
++                                    //a.digestion_signal += -6.0; // ewww poison/passed test (-punishment)
++                                    a.digestion_signal += pval; // ewww poison/passed test (-punishment)
++                                    break;
++                                default:
++                                    break;
++                            }
+                             it.cleanup_ = true;
+                             update_items = true;
+                             break; // break out of loop, item was consumed
+@@ -477,12 +521,15 @@ namespace DeepQLearning.DRLAgent
+                     }
+                 }
+ 
+-                if (it.age > 5000 && this.clock % 100 == 0 && util.randf(0, 1) < 0.1)
++                // random aging process
++                if (random && it.age > 5000 && this.clock % 100 == 0 && util.randf(0, 1) < 0.1)
+                 {
+                     it.cleanup_ = true; // replace this one, has been around too long
+                     update_items = true;
+                 }
+             }
++
++            // update process
+             if (update_items)
+             {
+                 var nt = new List<Item>();
+@@ -493,7 +540,26 @@ namespace DeepQLearning.DRLAgent
+                 }
+                 this.items = nt; // swap
+             }
+-            if (this.items.Count < 30 && this.clock % 10 == 0 && util.randf(0, 1) < 0.25)
++
++            // policy regeneration process
++            if (infinite && !random && this.items.Count < num_items && this.clock % 10 == 0 && util.randf(0, 1) < 0.25)
++            {
++                this.items = new List<Item>();
++                for (var k = 0; k < num_items; k++)
++                {
++                    // define policy based objects
++                    var x = (this.W / 35) * (k + 1) + ((k % 2 == 0) ? 50 : -50);
++                    var y = (this.H / 35) * (k + 1);
++                    var t = (k % 2 == 0) ? 1 : 2; // food/fail or poison/pass (1 and 2)
++
++                    // add objects to environment
++                    var it = new Item(x, y, t);
++                    this.items.Add(it);
++                }
++            }
++
++            // random regeneration process
++            if (infinite && random && this.items.Count < num_items && this.clock % 10 == 0 && util.randf(0, 1) < 0.25)
+             {
+                 var newitx = util.randf(20, this.W - 20);
+                 var newity = util.randf(20, this.H - 20);
+@@ -507,6 +573,13 @@ namespace DeepQLearning.DRLAgent
+             {
+                 this.agents[i].backward();
+             }
++
++            // endless loop or still rewards remaining
++            if (infinite || reward_count > 0)
++                return 0;
++            else
++                // stop when all rewards have been found
++                return 1;
+         }
+     }
+ 
+@@ -514,7 +587,9 @@ namespace DeepQLearning.DRLAgent
+     public class QAgent
+     {
+         public int simspeed = 1;
+-        World w;
++        public int experiencesize = 0;
++        public bool random, infinite;
++        public World w;
+ 
+         [NonSerialized]
+         Pen greenPen = new Pen(Color.LightGreen, 2);
+@@ -534,9 +609,11 @@ namespace DeepQLearning.DRLAgent
+         [NonSerialized]
+         Pen blackPen = new Pen(Color.Black);
+         
+-        public QAgent(DeepQLearn brain, int canvas_W, int canvas_H)
++        public QAgent(DeepQLearn brain, int canvas_W, int canvas_H, int num_items, bool random, bool obstruct, bool infinite)
+         {
+-            this.w = new World(brain, canvas_W, canvas_H);
++            this.random = random;
++            this.infinite = infinite;
++            this.w = new World(brain, canvas_W, canvas_H, num_items, random, obstruct, infinite);
+         }
+ 
+         public void Reinitialize()
+@@ -556,9 +633,39 @@ namespace DeepQLearning.DRLAgent
+             this.w.agents[0].op.y = 500;
+         }
+ 
+-        public void tick()
++        public int tick(double rval, double pval)
++        {
++            return w.tick(infinite, random, rval, pval);
++        }
++
++        // get Agent's current tick count
++        public int getTickCount()
++        {
++            return w.clock;
++        }
++
++        // get Agent's experience count
++        public int getExperienceCount()
++        {
++            return w.agents[0].brain.instanceExperienceCount();
++        }
++
++        // get Agent's processed item count
++        public double getProcessedItemCount()
++        {
++            return w.agents[0].processed_item_reward_count + w.agents[0].processed_item_punishment_count;
++        }
++
++        // get Agent's current average reward
++        public double getAvgReward()
++        {
++            return w.agents[0].brain.average_reward_window.get_average();
++        }
++
++        // get Agent's current average loss
++        public double getAvgLoss()
+         {
+-            w.tick();
++            return w.agents[0].brain.average_loss_window.get_average();
+         }
+ 
+         // Draw everything and return stats
+@@ -587,8 +694,8 @@ namespace DeepQLearning.DRLAgent
+                     var sr = e.sensed_proximity;
+                     Pen pen;
+ 
+-                    if (e.sensed_type == 1) pen = redPen2;           // apples
+-                    else if (e.sensed_type == 2) pen = greenPen2;    // poison
++                    if (e.sensed_type == 1) pen = redPen2;          // apples
++                    else if (e.sensed_type == 2) pen = greenPen2;   // poison
+                     else pen = blackPen;                            // wall
+ 
+                     //var new_x = a.op.x + sr * Math.Sin(radToDegree((float)a.oangle) + radToDegree((float)e.angle));
+@@ -616,6 +723,11 @@ namespace DeepQLearning.DRLAgent
+             return w.agents[0].brain.visSelf();
+         }
+ 
++        public void gofastest()
++        {
++            simspeed = 10;
++        }
++
+         public void goveryfast()
+         {
+             simspeed = 3;
+diff --git a/DeepQLearning/DeepQLearning.csproj b/DeepQLearning/DeepQLearning.csproj
+index 640eee8..3a5a6ab 100644
+--- a/DeepQLearning/DeepQLearning.csproj
++++ b/DeepQLearning/DeepQLearning.csproj
+@@ -67,17 +67,28 @@
+     <Compile Include="ConvnetSharp\Util.cs" />
+     <Compile Include="ConvnetSharp\Volume.cs" />
+     <Compile Include="DRLAgent\DeepQLearn.cs" />
++    <Compile Include="DRLAgent\DeepQLearnSharedSingleton.cs" />
++    <Compile Include="DRLAgent\DeepQLearnSharedStatic.cs" />
+     <Compile Include="DRLAgent\QAgent.cs" />
+-    <Compile Include="Form1.cs">
++    <Compile Include="FormAgent.cs">
+       <SubType>Form</SubType>
+     </Compile>
+-    <Compile Include="Form1.Designer.cs">
+-      <DependentUpon>Form1.cs</DependentUpon>
++    <Compile Include="FormAgent.Designer.cs">
++      <DependentUpon>FormAgent.cs</DependentUpon>
++    </Compile>
++    <Compile Include="FormDriver.cs">
++      <SubType>Form</SubType>
++    </Compile>
++    <Compile Include="FormDriver.Designer.cs">
++      <DependentUpon>FormDriver.cs</DependentUpon>
+     </Compile>
+     <Compile Include="Program.cs" />
+     <Compile Include="Properties\AssemblyInfo.cs" />
+-    <EmbeddedResource Include="Form1.resx">
+-      <DependentUpon>Form1.cs</DependentUpon>
++    <EmbeddedResource Include="FormAgent.resx">
++      <DependentUpon>FormAgent.cs</DependentUpon>
++    </EmbeddedResource>
++    <EmbeddedResource Include="FormDriver.resx">
++      <DependentUpon>FormDriver.cs</DependentUpon>
+     </EmbeddedResource>
+     <EmbeddedResource Include="Properties\Resources.resx">
+       <Generator>ResXFileCodeGenerator</Generator>
+diff --git a/DeepQLearning/Form1.Designer.cs b/DeepQLearning/Form1.Designer.cs
+deleted file mode 100644
+index bbd8b1e..0000000
+--- a/DeepQLearning/Form1.Designer.cs
++++ /dev/null
+@@ -1,259 +0,0 @@
+-﻿namespace DeepQLearning
+-{
+-    partial class Form1
+-    {
+-        /// <summary>
+-        /// Required designer variable.
+-        /// </summary>
+-        private System.ComponentModel.IContainer components = null;
+-
+-        /// <summary>
+-        /// Clean up any resources being used.
+-        /// </summary>
+-        /// <param name="disposing">true if managed resources should be disposed; otherwise, false.</param>
+-        protected override void Dispose(bool disposing)
+-        {
+-            if (disposing && (components != null))
+-            {
+-                components.Dispose();
+-            }
+-            base.Dispose(disposing);
+-        }
+-
+-        #region Windows Form Designer generated code
+-
+-        /// <summary>
+-        /// Required method for Designer support - do not modify
+-        /// the contents of this method with the code editor.
+-        /// </summary>
+-        private void InitializeComponent()
+-        {
+-            System.Windows.Forms.DataVisualization.Charting.ChartArea chartArea7 = new System.Windows.Forms.DataVisualization.Charting.ChartArea();
+-            System.Windows.Forms.DataVisualization.Charting.Legend legend7 = new System.Windows.Forms.DataVisualization.Charting.Legend();
+-            System.Windows.Forms.DataVisualization.Charting.Series series7 = new System.Windows.Forms.DataVisualization.Charting.Series();
+-            this.startLearning = new System.Windows.Forms.Button();
+-            this.displayBox = new System.Windows.Forms.TextBox();
+-            this.groupBox1 = new System.Windows.Forms.GroupBox();
+-            this.goSlow = new System.Windows.Forms.Button();
+-            this.goNormal = new System.Windows.Forms.Button();
+-            this.goFast = new System.Windows.Forms.Button();
+-            this.goVeryFast = new System.Windows.Forms.Button();
+-            this.StopLearning = new System.Windows.Forms.Button();
+-            this.chart1 = new System.Windows.Forms.DataVisualization.Charting.Chart();
+-            this.groupBox2 = new System.Windows.Forms.GroupBox();
+-            this.canvas = new System.Windows.Forms.Panel();
+-            this.groupBox3 = new System.Windows.Forms.GroupBox();
+-            this.PauseBtn = new System.Windows.Forms.Button();
+-            this.saveNet = new System.Windows.Forms.Button();
+-            this.loadNet = new System.Windows.Forms.Button();
+-            this.groupBox1.SuspendLayout();
+-            ((System.ComponentModel.ISupportInitialize)(this.chart1)).BeginInit();
+-            this.groupBox2.SuspendLayout();
+-            this.groupBox3.SuspendLayout();
+-            this.SuspendLayout();
+-            // 
+-            // startLearning
+-            // 
+-            this.startLearning.Location = new System.Drawing.Point(8, 21);
+-            this.startLearning.Name = "startLearning";
+-            this.startLearning.Size = new System.Drawing.Size(134, 27);
+-            this.startLearning.TabIndex = 0;
+-            this.startLearning.Text = "Start Learning";
+-            this.startLearning.UseVisualStyleBackColor = true;
+-            this.startLearning.Click += new System.EventHandler(this.startLearning_Click);
+-            // 
+-            // displayBox
+-            // 
+-            this.displayBox.Location = new System.Drawing.Point(8, 305);
+-            this.displayBox.Multiline = true;
+-            this.displayBox.Name = "displayBox";
+-            this.displayBox.ScrollBars = System.Windows.Forms.ScrollBars.Vertical;
+-            this.displayBox.Size = new System.Drawing.Size(360, 204);
+-            this.displayBox.TabIndex = 1;
+-            // 
+-            // groupBox1
+-            // 
+-            this.groupBox1.Controls.Add(this.loadNet);
+-            this.groupBox1.Controls.Add(this.saveNet);
+-            this.groupBox1.Controls.Add(this.PauseBtn);
+-            this.groupBox1.Controls.Add(this.goSlow);
+-            this.groupBox1.Controls.Add(this.goNormal);
+-            this.groupBox1.Controls.Add(this.goFast);
+-            this.groupBox1.Controls.Add(this.goVeryFast);
+-            this.groupBox1.Controls.Add(this.StopLearning);
+-            this.groupBox1.Controls.Add(this.startLearning);
+-            this.groupBox1.Location = new System.Drawing.Point(976, 534);
+-            this.groupBox1.Name = "groupBox1";
+-            this.groupBox1.Size = new System.Drawing.Size(374, 127);
+-            this.groupBox1.TabIndex = 3;
+-            this.groupBox1.TabStop = false;
+-            this.groupBox1.Text = "Controls";
+-            // 
+-            // goSlow
+-            // 
+-            this.goSlow.Location = new System.Drawing.Point(282, 54);
+-            this.goSlow.Name = "goSlow";
+-            this.goSlow.Size = new System.Drawing.Size(86, 27);
+-            this.goSlow.TabIndex = 5;
+-            this.goSlow.Text = "Go slow";
+-            this.goSlow.UseVisualStyleBackColor = true;
+-            this.goSlow.Click += new System.EventHandler(this.goSlow_Click);
+-            // 
+-            // goNormal
+-            // 
+-            this.goNormal.Location = new System.Drawing.Point(188, 54);
+-            this.goNormal.Name = "goNormal";
+-            this.goNormal.Size = new System.Drawing.Size(88, 27);
+-            this.goNormal.TabIndex = 4;
+-            this.goNormal.Text = "Go normal";
+-            this.goNormal.UseVisualStyleBackColor = true;
+-            this.goNormal.Click += new System.EventHandler(this.goNormal_Click);
+-            // 
+-            // goFast
+-            // 
+-            this.goFast.Location = new System.Drawing.Point(112, 54);
+-            this.goFast.Name = "goFast";
+-            this.goFast.Size = new System.Drawing.Size(70, 27);
+-            this.goFast.TabIndex = 3;
+-            this.goFast.Text = "Go fast";
+-            this.goFast.UseVisualStyleBackColor = true;
+-            this.goFast.Click += new System.EventHandler(this.goFast_Click);
+-            // 
+-            // goVeryFast
+-            // 
+-            this.goVeryFast.Location = new System.Drawing.Point(8, 54);
+-            this.goVeryFast.Name = "goVeryFast";
+-            this.goVeryFast.Size = new System.Drawing.Size(98, 27);
+-            this.goVeryFast.TabIndex = 2;
+-            this.goVeryFast.Text = "Go very fast";
+-            this.goVeryFast.UseVisualStyleBackColor = true;
+-            this.goVeryFast.Click += new System.EventHandler(this.goVeryFast_Click);
+-            // 
+-            // StopLearning
+-            // 
+-            this.StopLearning.Location = new System.Drawing.Point(235, 21);
+-            this.StopLearning.Name = "StopLearning";
+-            this.StopLearning.Size = new System.Drawing.Size(133, 27);
+-            this.StopLearning.TabIndex = 1;
+-            this.StopLearning.Text = "Stop Learning";
+-            this.StopLearning.UseVisualStyleBackColor = true;
+-            this.StopLearning.Click += new System.EventHandler(this.StopLearning_Click);
+-            // 
+-            // chart1
+-            // 
+-            chartArea7.Name = "ChartArea1";
+-            this.chart1.ChartAreas.Add(chartArea7);
+-            legend7.Name = "Legend1";
+-            this.chart1.Legends.Add(legend7);
+-            this.chart1.Location = new System.Drawing.Point(8, 21);
+-            this.chart1.Name = "chart1";
+-            series7.ChartArea = "ChartArea1";
+-            series7.Legend = "Legend1";
+-            series7.Name = "Series1";
+-            this.chart1.Series.Add(series7);
+-            this.chart1.Size = new System.Drawing.Size(360, 278);
+-            this.chart1.TabIndex = 4;
+-            this.chart1.Text = "chart1";
+-            // 
+-            // groupBox2
+-            // 
+-            this.groupBox2.Controls.Add(this.canvas);
+-            this.groupBox2.Location = new System.Drawing.Point(12, 12);
+-            this.groupBox2.Name = "groupBox2";
+-            this.groupBox2.Size = new System.Drawing.Size(958, 649);
+-            this.groupBox2.TabIndex = 5;
+-            this.groupBox2.TabStop = false;
+-            this.groupBox2.Text = "Visualization";
+-            // 
+-            // canvas
+-            // 
+-            this.canvas.BackColor = System.Drawing.SystemColors.Info;
+-            this.canvas.Location = new System.Drawing.Point(6, 21);
+-            this.canvas.Name = "canvas";
+-            this.canvas.Size = new System.Drawing.Size(946, 618);
+-            this.canvas.TabIndex = 0;
+-            this.canvas.Paint += new System.Windows.Forms.PaintEventHandler(this.canvas_Paint);
+-            // 
+-            // groupBox3
+-            // 
+-            this.groupBox3.Controls.Add(this.chart1);
+-            this.groupBox3.Controls.Add(this.displayBox);
+-            this.groupBox3.Location = new System.Drawing.Point(976, 12);
+-            this.groupBox3.Name = "groupBox3";
+-            this.groupBox3.Size = new System.Drawing.Size(374, 516);
+-            this.groupBox3.TabIndex = 0;
+-            this.groupBox3.TabStop = false;
+-            this.groupBox3.Text = "Output";
+-            // 
+-            // PauseBtn
+-            // 
+-            this.PauseBtn.Location = new System.Drawing.Point(148, 21);
+-            this.PauseBtn.Name = "PauseBtn";
+-            this.PauseBtn.Size = new System.Drawing.Size(81, 27);
+-            this.PauseBtn.TabIndex = 6;
+-            this.PauseBtn.Text = "Pause";
+-            this.PauseBtn.UseVisualStyleBackColor = true;
+-            this.PauseBtn.Click += new System.EventHandler(this.PauseBtn_Click);
+-            // 
+-            // saveNet
+-            // 
+-            this.saveNet.Location = new System.Drawing.Point(8, 88);
+-            this.saveNet.Name = "saveNet";
+-            this.saveNet.Size = new System.Drawing.Size(174, 29);
+-            this.saveNet.TabIndex = 7;
+-            this.saveNet.Text = "Save QNetwork";
+-            this.saveNet.UseVisualStyleBackColor = true;
+-            this.saveNet.Click += new System.EventHandler(this.saveNet_Click);
+-            // 
+-            // loadNet
+-            // 
+-            this.loadNet.Location = new System.Drawing.Point(188, 88);
+-            this.loadNet.Name = "loadNet";
+-            this.loadNet.Size = new System.Drawing.Size(180, 29);
+-            this.loadNet.TabIndex = 8;
+-            this.loadNet.Text = "Load QNetwork";
+-            this.loadNet.UseVisualStyleBackColor = true;
+-            this.loadNet.Click += new System.EventHandler(this.loadNet_Click);
+-            // 
+-            // Form1
+-            // 
+-            this.AutoScaleDimensions = new System.Drawing.SizeF(8F, 16F);
+-            this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
+-            this.ClientSize = new System.Drawing.Size(1362, 673);
+-            this.Controls.Add(this.groupBox3);
+-            this.Controls.Add(this.groupBox2);
+-            this.Controls.Add(this.groupBox1);
+-            this.MaximizeBox = false;
+-            this.Name = "Form1";
+-            this.SizeGripStyle = System.Windows.Forms.SizeGripStyle.Show;
+-            this.Text = "Deep Q Learning Demo";
+-            this.FormClosed += new System.Windows.Forms.FormClosedEventHandler(this.Form1_FormClosed);
+-            this.groupBox1.ResumeLayout(false);
+-            ((System.ComponentModel.ISupportInitialize)(this.chart1)).EndInit();
+-            this.groupBox2.ResumeLayout(false);
+-            this.groupBox3.ResumeLayout(false);
+-            this.groupBox3.PerformLayout();
+-            this.ResumeLayout(false);
+-
+-        }
+-
+-        #endregion
+-
+-        private System.Windows.Forms.Button startLearning;
+-        private System.Windows.Forms.TextBox displayBox;
+-        private System.Windows.Forms.GroupBox groupBox1;
+-        private System.Windows.Forms.DataVisualization.Charting.Chart chart1;
+-        private System.Windows.Forms.GroupBox groupBox2;
+-        private System.Windows.Forms.GroupBox groupBox3;
+-        private System.Windows.Forms.Button StopLearning;
+-        private System.Windows.Forms.Button goSlow;
+-        private System.Windows.Forms.Button goNormal;
+-        private System.Windows.Forms.Button goFast;
+-        private System.Windows.Forms.Button goVeryFast;
+-        private System.Windows.Forms.Panel canvas;
+-        private System.Windows.Forms.Button loadNet;
+-        private System.Windows.Forms.Button saveNet;
+-        private System.Windows.Forms.Button PauseBtn;
+-    }
+-}
+-
+diff --git a/DeepQLearning/Form1.cs b/DeepQLearning/Form1.cs
+deleted file mode 100644
+index ecf926e..0000000
+--- a/DeepQLearning/Form1.cs
++++ /dev/null
+@@ -1,324 +0,0 @@
+-﻿using ConvnetSharp;
+-using DeepQLearning.DRLAgent;
+-using Newtonsoft.Json;
+-using System;
+-using System.Collections.Generic;
+-using System.ComponentModel;
+-using System.Data;
+-using System.Drawing;
+-using System.IO;
+-using System.Linq;
+-using System.Reflection;
+-using System.Runtime.Serialization.Formatters.Binary;
+-using System.Text;
+-using System.Threading;
+-using System.Threading.Tasks;
+-using System.Windows.Forms;
+-
+-namespace DeepQLearning
+-{
+-    public partial class Form1 : Form
+-    {
+-        Pen blackPen = new Pen(Color.Black);
+-        Pen greenPen = new Pen(Color.LightGreen, 5);
+-
+-        // worker thread
+-        private Thread workerThread = null;
+-
+-        Boolean needToStop = false, paused = false;
+-        QAgent qAgent;
+-
+-        int interval = 30;
+-
+-        string netFile = Environment.CurrentDirectory + "\\deepQnet.dat";
+-        
+-        public Form1()
+-        {
+-            InitializeComponent();
+-
+-            // Fix Panel double buffering issue
+-            typeof(Panel).InvokeMember("DoubleBuffered",
+-            BindingFlags.SetProperty | BindingFlags.Instance | BindingFlags.NonPublic,
+-            null, canvas, new object[] { true });
+-        }
+-
+-        private void canvas_Paint(object sender, PaintEventArgs e)
+-        {
+-            if (qAgent != null) {
+-                displayBox.Text = qAgent.draw_world(e.Graphics);
+-
+-                switch (qAgent.simspeed)
+-                {
+-                    case 0:
+-                        displayBox.Text += Environment.NewLine + "Simulation speed: Slow";
+-                        break;
+-
+-                    case 1:
+-                        displayBox.Text += Environment.NewLine + "Simulation speed: Normal";
+-                        break;
+-
+-                    case 2:
+-                        displayBox.Text += Environment.NewLine + "Simulation speed: Fast";
+-                        break;
+-
+-                    case 3:
+-                        displayBox.Text += Environment.NewLine + "Simulation speed: Very Fast";
+-                        break;
+-                }
+-            }
+-
+-            canvas.Update();
+-        }
+-
+-        #region // Button Controls
+-        private void StopLearning_Click(object sender, EventArgs e)
+-        {
+-            qAgent.stoplearn();
+-        }
+-
+-        private void startLearning_Click(object sender, EventArgs e)
+-        {
+-            if (qAgent == null)
+-            {
+-                var num_inputs = 27; // 9 eyes, each sees 3 numbers (wall, green, red thing proximity)
+-                var num_actions = 5; // 5 possible angles agent can turn
+-                var temporal_window = 4; // amount of temporal memory. 0 = agent lives in-the-moment :)
+-                var network_size = num_inputs * temporal_window + num_actions * temporal_window + num_inputs;
+-
+-                var layer_defs = new List<LayerDefinition>();
+-
+-                // the value function network computes a value of taking any of the possible actions
+-                // given an input state. Here we specify one explicitly the hard way
+-                // but user could also equivalently instead use opt.hidden_layer_sizes = [20,20]
+-                // to just insert simple relu hidden layers.
+-                layer_defs.Add(new LayerDefinition { type = "input", out_sx = 1, out_sy = 1, out_depth = network_size });
+-                layer_defs.Add(new LayerDefinition { type = "fc", num_neurons = 96, activation = "relu" });
+-                layer_defs.Add(new LayerDefinition { type = "fc", num_neurons = 96, activation = "relu" });
+-                layer_defs.Add(new LayerDefinition { type = "fc", num_neurons = 96, activation = "relu" });
+-                layer_defs.Add(new LayerDefinition { type = "regression", num_neurons = num_actions });
+-
+-                // options for the Temporal Difference learner that trains the above net
+-                // by backpropping the temporal difference learning rule.
+-                //var opt = new Options { method="sgd", learning_rate=0.01, l2_decay=0.001, momentum=0.9, batch_size=10, l1_decay=0.001 };
+-                var opt = new Options { method = "adadelta", l2_decay = 0.001, batch_size = 10 };
+-
+-                var tdtrainer_options = new TrainingOptions();
+-                tdtrainer_options.temporal_window = temporal_window;
+-                tdtrainer_options.experience_size = 30000;
+-                tdtrainer_options.start_learn_threshold = 1000;
+-                tdtrainer_options.gamma = 0.7;
+-                tdtrainer_options.learning_steps_total = 200000;
+-                tdtrainer_options.learning_steps_burnin = 3000;
+-                tdtrainer_options.epsilon_min = 0.05;
+-                tdtrainer_options.epsilon_test_time = 0.00;
+-                tdtrainer_options.layer_defs = layer_defs;
+-                tdtrainer_options.options = opt;
+-
+-                var brain = new DeepQLearn(num_inputs, num_actions, tdtrainer_options);
+-                qAgent = new QAgent(brain, canvas.Width, canvas.Height);
+-            }
+-            else
+-                qAgent.startlearn();
+-
+-            if (workerThread == null)
+-            {
+-                workerThread = new Thread(new ThreadStart(BackgroundThread));
+-                workerThread.Start();
+-            }
+-        }
+-
+-        private void PauseBtn_Click(object sender, EventArgs e)
+-        {
+-            if(paused)
+-            {
+-                PauseBtn.Text = "Pause";
+-                paused = false;
+-            }
+-            else
+-            {
+-                PauseBtn.Text = "Continue";
+-                paused = true;
+-            }
+-        }
+-
+-        private void saveNet_Click(object sender, EventArgs e)
+-        {
+-            // Save the netwok to file
+-            using (FileStream fstream = new FileStream(netFile, FileMode.Create))
+-            {
+-                new BinaryFormatter().Serialize(fstream, qAgent);
+-            }
+-
+-            displayBox.Text = "QNetwork saved successfully";
+-        }
+-
+-        private void loadNet_Click(object sender, EventArgs e)
+-        {
+-            // Load the netwok from file
+-            using (FileStream fstream = new FileStream(netFile, FileMode.Open))
+-            {
+-                qAgent = new BinaryFormatter().Deserialize(fstream) as QAgent;
+-                qAgent.Reinitialize();
+-            }
+-
+-            if (workerThread == null)
+-            {
+-                workerThread = new Thread(new ThreadStart(BackgroundThread));
+-                workerThread.Start();
+-            }
+-        }
+-
+-        private void Form1_FormClosed(object sender, FormClosedEventArgs e)
+-        {
+-            needToStop = true;
+-
+-            if (workerThread != null)
+-            {
+-                // stop worker thread
+-                needToStop = true;
+-                while (!workerThread.Join(100))
+-                    Application.DoEvents();
+-                workerThread = null;
+-            }
+-        }
+-
+-        private void goNormal_Click(object sender, EventArgs e)
+-        {
+-            qAgent.gonormal();
+-            interval = 25;
+-        }
+-
+-        private void goFast_Click(object sender, EventArgs e)
+-        {
+-            qAgent.gofast();
+-            interval = 10;
+-        }
+-
+-        private void goVeryFast_Click(object sender, EventArgs e)
+-        {
+-            qAgent.goveryfast();
+-            interval = 0;
+-        }
+-
+-        private void goSlow_Click(object sender, EventArgs e)
+-        {
+-            qAgent.goslow();
+-            interval = 50;
+-        }
+-        #endregion
+-
+-        // Delegates to enable async calls for setting controls properties
+-        private delegate void UpdateUICallback(Panel panel);
+-
+-        // Thread safe updating of UI
+-        private void UpdateUI(Panel panel)
+-        {
+-            if(needToStop)
+-                return;
+-
+-            if (panel.InvokeRequired)
+-            {
+-                UpdateUICallback d = new UpdateUICallback(UpdateUI);
+-                Invoke(d, new object[] { panel });
+-            }
+-            else
+-            {
+-                panel.Refresh();
+-            }
+-        }
+-
+-        private void BackgroundThread()
+-        {
+-            while (!needToStop)
+-            {
+-                if (!paused)
+-                {
+-                    qAgent.tick();
+-                    UpdateUI(canvas);
+-                }
+-
+-                Thread.Sleep(interval);
+-            }
+-        }
+-
+-        public Intersect line_point_intersect(Graphics g, Vec A, Vec B, Vec C, double rad)
+-        {
+-            Intersect result = new Intersect { intersect = false };
+-
+-            // compute the euclidean distance between A and B
+-            var LAB = Math.Sqrt(Math.Pow(B.x - A.x, 2) + Math.Pow(B.y - A.y, 2));
+-
+-            // compute the direction vector of line AB
+-            var thetaAB = Math.Atan2((B.x - A.x), (B.y - A.y));
+-
+-            // compute the direction vector D from A to B
+-            var Dx = (B.x - A.x) / LAB;
+-            var Dy = (B.y - A.y) / LAB;
+-
+-            // Now the line equation is x = Dx*t + Ax, y = Dy*t + Ay with 0 <= t <= 1.
+-            // compute the value t of the closest point to the circle center (Cx, Cy)
+-            var t = Dx * (C.x - A.x) + Dy * (C.y - A.y);
+-
+-            // This is the projection of C on the line from A to B.
+-            // compute the coordinates of the point E on line and closest to C
+-            var Ex = t * Dx + A.x;
+-            var Ey = t * Dy + A.y;
+-
+-            // compute the euclidean distance from E to C
+-            var LEC = Math.Sqrt(Math.Pow(Ex - C.x, 2) + Math.Pow(Ey - C.y, 2));
+-
+-            // test if the line intersects the circle
+-            if (LEC < rad)
+-            {
+-                // compute distance from t to circle intersection point
+-                var dt = Math.Sqrt(Math.Pow(rad, 2) - Math.Pow(LEC, 2));
+-
+-                // compute first intersection point F
+-                var F = new Vec((t - dt) * Dx + A.x, (t - dt) * Dy + A.y);
+-
+-                // compute second intersection point G
+-                var G = new Vec((t + dt) * Dx + A.x, (t + dt) * Dy + A.y);
+-
+-                // compute the euclidean distance from A to F
+-                var LAF = Math.Sqrt(Math.Pow(F.x - A.x, 2) + Math.Pow(F.y - A.y, 2));
+-
+-                // compute the direction vector of line AF
+-                var thetaAF = Math.Atan2((F.x - A.x),(F.y - A.y));
+-
+-                if (LAF <= LAB && thetaAB == thetaAF)
+-                {
+-                    // line intersects with point
+-                    result = new Intersect { ua = dt, up = F, intersect = true };
+-                }
+-
+-            }
+-            else if (LEC == rad) // else test if the line is tangent to circle
+-            {
+-                ;   // tangent point to circle is E
+-            }
+-            else 
+-            {
+-                ;   // line doesn't touch circle
+-            }
+-
+-            return result;        
+-        }
+-
+-        private void drawCircle(Graphics g, Vec center, int radius, Pen pen)
+-        {
+-            var rect = new Rectangle((int)center.x - radius, (int)center.y - radius, radius * 2, radius * 2);
+-            g.DrawEllipse(pen, rect);
+-        }
+-
+-        private void drawLine(Graphics g, Vec a, Vec b, Pen pen)
+-        {
+-            Point[] points =
+-            {
+-                new Point((int)a.x, (int)a.y),
+-                new Point((int)b.x, (int)b.y)
+-            };
+-
+-            g.DrawLines(pen, points);
+-        }
+-    }
+-}
+diff --git a/DeepQLearning/Form1.resx b/DeepQLearning/Form1.resx
+deleted file mode 100644
+index 3bf930b..0000000
+--- a/DeepQLearning/Form1.resx
++++ /dev/null
+@@ -1,123 +0,0 @@
+-﻿<?xml version="1.0" encoding="utf-8"?>
+-<root>
+-  <!-- 
+-    Microsoft ResX Schema 
+-    
+-    Version 2.0
+-    
+-    The primary goals of this format is to allow a simple XML format 
+-    that is mostly human readable. The generation and parsing of the 
+-    various data types are done through the TypeConverter classes 
+-    associated with the data types.
+-    
+-    Example:
+-    
+-    ... ado.net/XML headers & schema ...
+-    <resheader name="resmimetype">text/microsoft-resx</resheader>
+-    <resheader name="version">2.0</resheader>
+-    <resheader name="reader">System.Resources.ResXResourceReader, System.Windows.Forms, ...</resheader>
+-    <resheader name="writer">System.Resources.ResXResourceWriter, System.Windows.Forms, ...</resheader>
+-    <data name="Name1"><value>this is my long string</value><comment>this is a comment</comment></data>
+-    <data name="Color1" type="System.Drawing.Color, System.Drawing">Blue</data>
+-    <data name="Bitmap1" mimetype="application/x-microsoft.net.object.binary.base64">
+-        <value>[base64 mime encoded serialized .NET Framework object]</value>
+-    </data>
+-    <data name="Icon1" type="System.Drawing.Icon, System.Drawing" mimetype="application/x-microsoft.net.object.bytearray.base64">
+-        <value>[base64 mime encoded string representing a byte array form of the .NET Framework object]</value>
+-        <comment>This is a comment</comment>
+-    </data>
+-                
+-    There are any number of "resheader" rows that contain simple 
+-    name/value pairs.
+-    
+-    Each data row contains a name, and value. The row also contains a 
+-    type or mimetype. Type corresponds to a .NET class that support 
+-    text/value conversion through the TypeConverter architecture. 
+-    Classes that don't support this are serialized and stored with the 
+-    mimetype set.
+-    
+-    The mimetype is used for serialized objects, and tells the 
+-    ResXResourceReader how to depersist the object. This is currently not 
+-    extensible. For a given mimetype the value must be set accordingly:
+-    
+-    Note - application/x-microsoft.net.object.binary.base64 is the format 
+-    that the ResXResourceWriter will generate, however the reader can 
+-    read any of the formats listed below.
+-    
+-    mimetype: application/x-microsoft.net.object.binary.base64
+-    value   : The object must be serialized with 
+-            : System.Runtime.Serialization.Formatters.Binary.BinaryFormatter
+-            : and then encoded with base64 encoding.
+-    
+-    mimetype: application/x-microsoft.net.object.soap.base64
+-    value   : The object must be serialized with 
+-            : System.Runtime.Serialization.Formatters.Soap.SoapFormatter
+-            : and then encoded with base64 encoding.
+-
+-    mimetype: application/x-microsoft.net.object.bytearray.base64
+-    value   : The object must be serialized into a byte array 
+-            : using a System.ComponentModel.TypeConverter
+-            : and then encoded with base64 encoding.
+-    -->
+-  <xsd:schema id="root" xmlns="" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:msdata="urn:schemas-microsoft-com:xml-msdata">
+-    <xsd:import namespace="http://www.w3.org/XML/1998/namespace" />
+-    <xsd:element name="root" msdata:IsDataSet="true">
+-      <xsd:complexType>
+-        <xsd:choice maxOccurs="unbounded">
+-          <xsd:element name="metadata">
+-            <xsd:complexType>
+-              <xsd:sequence>
+-                <xsd:element name="value" type="xsd:string" minOccurs="0" />
+-              </xsd:sequence>
+-              <xsd:attribute name="name" use="required" type="xsd:string" />
+-              <xsd:attribute name="type" type="xsd:string" />
+-              <xsd:attribute name="mimetype" type="xsd:string" />
+-              <xsd:attribute ref="xml:space" />
+-            </xsd:complexType>
+-          </xsd:element>
+-          <xsd:element name="assembly">
+-            <xsd:complexType>
+-              <xsd:attribute name="alias" type="xsd:string" />
+-              <xsd:attribute name="name" type="xsd:string" />
+-            </xsd:complexType>
+-          </xsd:element>
+-          <xsd:element name="data">
+-            <xsd:complexType>
+-              <xsd:sequence>
+-                <xsd:element name="value" type="xsd:string" minOccurs="0" msdata:Ordinal="1" />
+-                <xsd:element name="comment" type="xsd:string" minOccurs="0" msdata:Ordinal="2" />
+-              </xsd:sequence>
+-              <xsd:attribute name="name" type="xsd:string" use="required" msdata:Ordinal="1" />
+-              <xsd:attribute name="type" type="xsd:string" msdata:Ordinal="3" />
+-              <xsd:attribute name="mimetype" type="xsd:string" msdata:Ordinal="4" />
+-              <xsd:attribute ref="xml:space" />
+-            </xsd:complexType>
+-          </xsd:element>
+-          <xsd:element name="resheader">
+-            <xsd:complexType>
+-              <xsd:sequence>
+-                <xsd:element name="value" type="xsd:string" minOccurs="0" msdata:Ordinal="1" />
+-              </xsd:sequence>
+-              <xsd:attribute name="name" type="xsd:string" use="required" />
+-            </xsd:complexType>
+-          </xsd:element>
+-        </xsd:choice>
+-      </xsd:complexType>
+-    </xsd:element>
+-  </xsd:schema>
+-  <resheader name="resmimetype">
+-    <value>text/microsoft-resx</value>
+-  </resheader>
+-  <resheader name="version">
+-    <value>2.0</value>
+-  </resheader>
+-  <resheader name="reader">
+-    <value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+-  </resheader>
+-  <resheader name="writer">
+-    <value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+-  </resheader>
+-  <metadata name="$this.Locked" type="System.Boolean, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089">
+-    <value>True</value>
+-  </metadata>
+-</root>
+\ No newline at end of file
+diff --git a/DeepQLearning/Program.cs b/DeepQLearning/Program.cs
+index 7eec438..a55ce28 100644
+--- a/DeepQLearning/Program.cs
++++ b/DeepQLearning/Program.cs
+@@ -12,11 +12,14 @@ namespace DeepQLearning
+         /// The main entry point for the application.
+         /// </summary>
+         [STAThread]
+-        static void Main()
++        static void Main(string[] args)
+         {
+             Application.EnableVisualStyles();
+             Application.SetCompatibleTextRenderingDefault(false);
+-            Application.Run(new Form1());
++            if (args.Length > 0)
++            { Application.Run(new FormAgent((args.Length) > 0 ? args : null)); }
++            else
++            { Application.Run(new FormDriver()); }
+         }
+     }
+ }
+diff --git a/DeepQLearning/bin/Debug/deepQnet.dat b/DeepQLearning/bin/Debug/deepQnet.dat
+deleted file mode 100644
+index 633e0ea..0000000
+Binary files a/DeepQLearning/bin/Debug/deepQnet.dat and /dev/null differ
+diff --git a/DeepQLearning/obj/Debug/DeepQLearning.Form1.resources b/DeepQLearning/obj/Debug/DeepQLearning.Form1.resources
+deleted file mode 100644
+index 6c05a97..0000000
+Binary files a/DeepQLearning/obj/Debug/DeepQLearning.Form1.resources and /dev/null differ
+diff --git a/DeepQLearning/obj/Debug/DeepQLearning.csproj.FileListAbsolute.txt b/DeepQLearning/obj/Debug/DeepQLearning.csproj.FileListAbsolute.txt
+index 2bc0824..de23e5e 100644
+--- a/DeepQLearning/obj/Debug/DeepQLearning.csproj.FileListAbsolute.txt
++++ b/DeepQLearning/obj/Debug/DeepQLearning.csproj.FileListAbsolute.txt
+@@ -29,3 +29,28 @@ C:\Users\Shelton\Documents\Visual Studio 2015\Projects\DeepQLearning\obj\Debug\D
+ C:\Users\Shelton\Documents\Visual Studio 2015\Projects\DeepQLearning\obj\Debug\DeepQLearning.Form1.resources
+ C:\Users\Shelton\Documents\Visual Studio 2015\Projects\DeepQLearning\obj\Debug\DeepQLearning.Properties.Resources.resources
+ C:\Users\Shelton\Documents\Visual Studio 2015\Projects\DeepQLearning\obj\Debug\DeepQLearning.csproj.GenerateResource.Cache
++C:\data\MyPhD\operating-systems\code\Deep-QLearning-Demo-csharp\DeepQLearning\bin\Debug\DeepQLearning.exe.config
++C:\data\MyPhD\operating-systems\code\Deep-QLearning-Demo-csharp\DeepQLearning\bin\Debug\DeepQLearning.exe
++C:\data\MyPhD\operating-systems\code\Deep-QLearning-Demo-csharp\DeepQLearning\bin\Debug\DeepQLearning.pdb
++C:\data\MyPhD\operating-systems\code\Deep-QLearning-Demo-csharp\DeepQLearning\bin\Debug\Newtonsoft.Json.dll
++C:\data\MyPhD\operating-systems\code\Deep-QLearning-Demo-csharp\DeepQLearning\obj\Debug\DeepQLearning.csprojAssemblyReference.cache
++C:\data\MyPhD\operating-systems\code\Deep-QLearning-Demo-csharp\DeepQLearning\obj\Debug\DeepQLearning.Form1.resources
++C:\data\MyPhD\operating-systems\code\Deep-QLearning-Demo-csharp\DeepQLearning\obj\Debug\DeepQLearning.Properties.Resources.resources
++C:\data\MyPhD\operating-systems\code\Deep-QLearning-Demo-csharp\DeepQLearning\obj\Debug\DeepQLearning.csproj.GenerateResource.cache
++C:\data\MyPhD\operating-systems\code\Deep-QLearning-Demo-csharp\DeepQLearning\obj\Debug\DeepQLearning.csproj.CoreCompileInputs.cache
++C:\data\MyPhD\operating-systems\code\Deep-QLearning-Demo-csharp\DeepQLearning\obj\Debug\DeepQLearning.csproj.CopyComplete
++C:\data\MyPhD\operating-systems\code\Deep-QLearning-Demo-csharp\DeepQLearning\obj\Debug\DeepQLearning.exe
++C:\data\MyPhD\operating-systems\code\Deep-QLearning-Demo-csharp\DeepQLearning\obj\Debug\DeepQLearning.pdb
++C:\data\MyPhD\operating-systems\code\Deep-QLearning\DeepQLearning\bin\Debug\DeepQLearning.exe.config
++C:\data\MyPhD\operating-systems\code\Deep-QLearning\DeepQLearning\bin\Debug\DeepQLearning.exe
++C:\data\MyPhD\operating-systems\code\Deep-QLearning\DeepQLearning\bin\Debug\DeepQLearning.pdb
++C:\data\MyPhD\operating-systems\code\Deep-QLearning\DeepQLearning\bin\Debug\Newtonsoft.Json.dll
++C:\data\MyPhD\operating-systems\code\Deep-QLearning\DeepQLearning\obj\Debug\DeepQLearning.csprojAssemblyReference.cache
++C:\data\MyPhD\operating-systems\code\Deep-QLearning\DeepQLearning\obj\Debug\DeepQLearning.Properties.Resources.resources
++C:\data\MyPhD\operating-systems\code\Deep-QLearning\DeepQLearning\obj\Debug\DeepQLearning.csproj.GenerateResource.cache
++C:\data\MyPhD\operating-systems\code\Deep-QLearning\DeepQLearning\obj\Debug\DeepQLearning.csproj.CoreCompileInputs.cache
++C:\data\MyPhD\operating-systems\code\Deep-QLearning\DeepQLearning\obj\Debug\DeepQLearning.csproj.CopyComplete
++C:\data\MyPhD\operating-systems\code\Deep-QLearning\DeepQLearning\obj\Debug\DeepQLearning.exe
++C:\data\MyPhD\operating-systems\code\Deep-QLearning\DeepQLearning\obj\Debug\DeepQLearning.pdb
++C:\data\MyPhD\operating-systems\code\Deep-QLearning\DeepQLearning\obj\Debug\DeepQLearning.FormAgent.resources
++C:\data\MyPhD\operating-systems\code\Deep-QLearning\DeepQLearning\obj\Debug\DeepQLearning.FormDriver.resources
+diff --git a/DeepQLearning/obj/Debug/DeepQLearning.csproj.GenerateResource.Cache b/DeepQLearning/obj/Debug/DeepQLearning.csproj.GenerateResource.Cache
+index 5a6b4f4..5db2c06 100644
+Binary files a/DeepQLearning/obj/Debug/DeepQLearning.csproj.GenerateResource.Cache and b/DeepQLearning/obj/Debug/DeepQLearning.csproj.GenerateResource.Cache differ
+diff --git a/DeepQLearning/obj/Debug/DeepQLearning.exe b/DeepQLearning/obj/Debug/DeepQLearning.exe
+index 1bf588b..33e6893 100644
+Binary files a/DeepQLearning/obj/Debug/DeepQLearning.exe and b/DeepQLearning/obj/Debug/DeepQLearning.exe differ
+diff --git a/DeepQLearning/obj/Debug/DeepQLearning.pdb b/DeepQLearning/obj/Debug/DeepQLearning.pdb
+index a0eb921..23a652c 100644
+Binary files a/DeepQLearning/obj/Debug/DeepQLearning.pdb and b/DeepQLearning/obj/Debug/DeepQLearning.pdb differ
+diff --git a/DeepQLearning/obj/Debug/DesignTimeResolveAssemblyReferences.cache b/DeepQLearning/obj/Debug/DesignTimeResolveAssemblyReferences.cache
+index 5f24562..a6fca88 100644
+Binary files a/DeepQLearning/obj/Debug/DesignTimeResolveAssemblyReferences.cache and b/DeepQLearning/obj/Debug/DesignTimeResolveAssemblyReferences.cache differ
+diff --git a/DeepQLearning/obj/Debug/DesignTimeResolveAssemblyReferencesInput.cache b/DeepQLearning/obj/Debug/DesignTimeResolveAssemblyReferencesInput.cache
+index c002938..6405edc 100644
+Binary files a/DeepQLearning/obj/Debug/DesignTimeResolveAssemblyReferencesInput.cache and b/DeepQLearning/obj/Debug/DesignTimeResolveAssemblyReferencesInput.cache differ

@@ -1,0 +1,69 @@
+C:\Users\Shelton\documents\visual studio 2015\Projects\MachineLearning\DeepQLearning\bin\Debug\DeepQLearning.exe.config
+C:\Users\Shelton\documents\visual studio 2015\Projects\MachineLearning\DeepQLearning\bin\Debug\DeepQLearning.exe
+C:\Users\Shelton\documents\visual studio 2015\Projects\MachineLearning\DeepQLearning\bin\Debug\DeepQLearning.pdb
+C:\Users\Shelton\documents\visual studio 2015\Projects\MachineLearning\DeepQLearning\bin\Debug\Newtonsoft.Json.dll
+C:\Users\Shelton\documents\visual studio 2015\Projects\MachineLearning\DeepQLearning\bin\Debug\Newtonsoft.Json.xml
+C:\Users\Shelton\documents\visual studio 2015\Projects\MachineLearning\DeepQLearning\obj\Debug\DeepQLearning.csprojResolveAssemblyReference.cache
+C:\Users\Shelton\documents\visual studio 2015\Projects\MachineLearning\DeepQLearning\obj\Debug\DeepQLearning.Form1.resources
+C:\Users\Shelton\documents\visual studio 2015\Projects\MachineLearning\DeepQLearning\obj\Debug\DeepQLearning.Properties.Resources.resources
+C:\Users\Shelton\documents\visual studio 2015\Projects\MachineLearning\DeepQLearning\obj\Debug\DeepQLearning.csproj.GenerateResource.Cache
+C:\Users\Shelton\documents\visual studio 2015\Projects\MachineLearning\DeepQLearning\obj\Debug\DeepQLearning.exe
+C:\Users\Shelton\documents\visual studio 2015\Projects\MachineLearning\DeepQLearning\obj\Debug\DeepQLearning.pdb
+C:\Users\Shelton\Documents\Visual Studio 2012\Projects\DeepQLearning\bin\Debug\DeepQLearning.exe.config
+C:\Users\Shelton\Documents\Visual Studio 2012\Projects\DeepQLearning\obj\Debug\DeepQLearning.exe
+C:\Users\Shelton\Documents\Visual Studio 2012\Projects\DeepQLearning\obj\Debug\DeepQLearning.pdb
+C:\Users\Shelton\Documents\Visual Studio 2012\Projects\DeepQLearning\bin\Debug\DeepQLearning.exe
+C:\Users\Shelton\Documents\Visual Studio 2012\Projects\DeepQLearning\bin\Debug\DeepQLearning.pdb
+C:\Users\Shelton\Documents\Visual Studio 2012\Projects\DeepQLearning\bin\Debug\Newtonsoft.Json.xml
+C:\Users\Shelton\Documents\Visual Studio 2012\Projects\DeepQLearning\obj\Debug\DeepQLearning.csprojResolveAssemblyReference.cache
+C:\Users\Shelton\Documents\Visual Studio 2012\Projects\DeepQLearning\obj\Debug\DeepQLearning.Form1.resources
+C:\Users\Shelton\Documents\Visual Studio 2012\Projects\DeepQLearning\obj\Debug\DeepQLearning.Properties.Resources.resources
+C:\Users\Shelton\Documents\Visual Studio 2012\Projects\DeepQLearning\obj\Debug\DeepQLearning.csproj.GenerateResource.Cache
+C:\Users\Shelton\Documents\Visual Studio 2015\Projects\DeepQLearning\bin\Debug\DeepQLearning.exe.config
+C:\Users\Shelton\Documents\Visual Studio 2015\Projects\DeepQLearning\obj\Debug\DeepQLearning.exe
+C:\Users\Shelton\Documents\Visual Studio 2015\Projects\DeepQLearning\obj\Debug\DeepQLearning.pdb
+C:\Users\Shelton\Documents\Visual Studio 2015\Projects\DeepQLearning\bin\Debug\DeepQLearning.exe
+C:\Users\Shelton\Documents\Visual Studio 2015\Projects\DeepQLearning\bin\Debug\DeepQLearning.pdb
+C:\Users\Shelton\Documents\Visual Studio 2015\Projects\DeepQLearning\bin\Debug\Newtonsoft.Json.xml
+C:\Users\Shelton\Documents\Visual Studio 2015\Projects\DeepQLearning\obj\Debug\DeepQLearning.csprojResolveAssemblyReference.cache
+C:\Users\Shelton\Documents\Visual Studio 2015\Projects\DeepQLearning\obj\Debug\DeepQLearning.Form1.resources
+C:\Users\Shelton\Documents\Visual Studio 2015\Projects\DeepQLearning\obj\Debug\DeepQLearning.Properties.Resources.resources
+C:\Users\Shelton\Documents\Visual Studio 2015\Projects\DeepQLearning\obj\Debug\DeepQLearning.csproj.GenerateResource.Cache
+C:\data\MyPhD\operating-systems\code\Deep-QLearning-Demo-csharp\DeepQLearning\bin\Debug\DeepQLearning.exe.config
+C:\data\MyPhD\operating-systems\code\Deep-QLearning-Demo-csharp\DeepQLearning\bin\Debug\DeepQLearning.exe
+C:\data\MyPhD\operating-systems\code\Deep-QLearning-Demo-csharp\DeepQLearning\bin\Debug\DeepQLearning.pdb
+C:\data\MyPhD\operating-systems\code\Deep-QLearning-Demo-csharp\DeepQLearning\bin\Debug\Newtonsoft.Json.dll
+C:\data\MyPhD\operating-systems\code\Deep-QLearning-Demo-csharp\DeepQLearning\obj\Debug\DeepQLearning.csprojAssemblyReference.cache
+C:\data\MyPhD\operating-systems\code\Deep-QLearning-Demo-csharp\DeepQLearning\obj\Debug\DeepQLearning.Form1.resources
+C:\data\MyPhD\operating-systems\code\Deep-QLearning-Demo-csharp\DeepQLearning\obj\Debug\DeepQLearning.Properties.Resources.resources
+C:\data\MyPhD\operating-systems\code\Deep-QLearning-Demo-csharp\DeepQLearning\obj\Debug\DeepQLearning.csproj.GenerateResource.cache
+C:\data\MyPhD\operating-systems\code\Deep-QLearning-Demo-csharp\DeepQLearning\obj\Debug\DeepQLearning.csproj.CoreCompileInputs.cache
+C:\data\MyPhD\operating-systems\code\Deep-QLearning-Demo-csharp\DeepQLearning\obj\Debug\DeepQLearning.csproj.CopyComplete
+C:\data\MyPhD\operating-systems\code\Deep-QLearning-Demo-csharp\DeepQLearning\obj\Debug\DeepQLearning.exe
+C:\data\MyPhD\operating-systems\code\Deep-QLearning-Demo-csharp\DeepQLearning\obj\Debug\DeepQLearning.pdb
+C:\data\MyPhD\operating-systems\code\Deep-QLearning\DeepQLearning\bin\Debug\DeepQLearning.exe.config
+C:\data\MyPhD\operating-systems\code\Deep-QLearning\DeepQLearning\bin\Debug\DeepQLearning.exe
+C:\data\MyPhD\operating-systems\code\Deep-QLearning\DeepQLearning\bin\Debug\DeepQLearning.pdb
+C:\data\MyPhD\operating-systems\code\Deep-QLearning\DeepQLearning\bin\Debug\Newtonsoft.Json.dll
+C:\data\MyPhD\operating-systems\code\Deep-QLearning\DeepQLearning\obj\Debug\DeepQLearning.csprojAssemblyReference.cache
+C:\data\MyPhD\operating-systems\code\Deep-QLearning\DeepQLearning\obj\Debug\DeepQLearning.Properties.Resources.resources
+C:\data\MyPhD\operating-systems\code\Deep-QLearning\DeepQLearning\obj\Debug\DeepQLearning.csproj.GenerateResource.cache
+C:\data\MyPhD\operating-systems\code\Deep-QLearning\DeepQLearning\obj\Debug\DeepQLearning.csproj.CoreCompileInputs.cache
+C:\data\MyPhD\operating-systems\code\Deep-QLearning\DeepQLearning\obj\Debug\DeepQLearning.csproj.CopyComplete
+C:\data\MyPhD\operating-systems\code\Deep-QLearning\DeepQLearning\obj\Debug\DeepQLearning.exe
+C:\data\MyPhD\operating-systems\code\Deep-QLearning\DeepQLearning\obj\Debug\DeepQLearning.pdb
+C:\data\MyPhD\operating-systems\code\Deep-QLearning\DeepQLearning\obj\Debug\DeepQLearning.FormAgent.resources
+C:\data\MyPhD\operating-systems\code\Deep-QLearning\DeepQLearning\obj\Debug\DeepQLearning.FormDriver.resources
+C:\data\MyPhD\operating-systems\code\Parallel-Deep-Reinforcement-Learning\DeepQLearning\bin\Debug\DeepQLearning.exe.config
+C:\data\MyPhD\operating-systems\code\Parallel-Deep-Reinforcement-Learning\DeepQLearning\bin\Debug\DeepQLearning.exe
+C:\data\MyPhD\operating-systems\code\Parallel-Deep-Reinforcement-Learning\DeepQLearning\bin\Debug\DeepQLearning.pdb
+C:\data\MyPhD\operating-systems\code\Parallel-Deep-Reinforcement-Learning\DeepQLearning\bin\Debug\Newtonsoft.Json.dll
+C:\data\MyPhD\operating-systems\code\Parallel-Deep-Reinforcement-Learning\DeepQLearning\obj\Debug\DeepQLearning.csprojAssemblyReference.cache
+C:\data\MyPhD\operating-systems\code\Parallel-Deep-Reinforcement-Learning\DeepQLearning\obj\Debug\DeepQLearning.FormAgent.resources
+C:\data\MyPhD\operating-systems\code\Parallel-Deep-Reinforcement-Learning\DeepQLearning\obj\Debug\DeepQLearning.FormDriver.resources
+C:\data\MyPhD\operating-systems\code\Parallel-Deep-Reinforcement-Learning\DeepQLearning\obj\Debug\DeepQLearning.Properties.Resources.resources
+C:\data\MyPhD\operating-systems\code\Parallel-Deep-Reinforcement-Learning\DeepQLearning\obj\Debug\DeepQLearning.csproj.GenerateResource.cache
+C:\data\MyPhD\operating-systems\code\Parallel-Deep-Reinforcement-Learning\DeepQLearning\obj\Debug\DeepQLearning.csproj.CoreCompileInputs.cache
+C:\data\MyPhD\operating-systems\code\Parallel-Deep-Reinforcement-Learning\DeepQLearning\obj\Debug\DeepQLearning.csproj.CopyComplete
+C:\data\MyPhD\operating-systems\code\Parallel-Deep-Reinforcement-Learning\DeepQLearning\obj\Debug\DeepQLearning.exe
+C:\data\MyPhD\operating-systems\code\Parallel-Deep-Reinforcement-Learning\DeepQLearning\obj\Debug\DeepQLearning.pdb
